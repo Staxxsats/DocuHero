@@ -1,0 +1,458 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// User Management
+model User {
+  id                String   @id @default(cuid())
+  email             String   @unique
+  hashedPassword    String?
+  firstName         String
+  lastName          String
+  phone             String?
+  role              UserRole @default(PROVIDER)
+  status            UserStatus @default(ACTIVE)
+  licenseNumber     String?
+  licenseState      String?
+  specialties       String[]
+  timezone          String   @default("America/New_York")
+  preferredLanguage String   @default("en")
+  
+  // Two-factor authentication
+  twoFactorSecret   String?
+  twoFactorEnabled  Boolean  @default(false)
+  
+  // Account settings
+  emailVerified     DateTime?
+  emailVerifiedToken String?
+  passwordResetToken String?
+  passwordResetExpires DateTime?
+  
+  // Metadata
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  lastLoginAt       DateTime?
+  deletedAt         DateTime?
+  
+  // HIPAA compliance fields
+  hipaaAgreedAt     DateTime?
+  hipaaAgreementVersion String?
+  
+  // Relationships
+  agency            Agency?  @relation(fields: [agencyId], references: [id])
+  agencyId          String?
+  
+  createdPatients   Patient[] @relation("CreatedBy")
+  assignedPatients  PatientAssignment[]
+  documents         Document[]
+  auditLogs         AuditLog[]
+  sessions          Session[]
+  progressNotes     ProgressNote[]
+  
+  @@map("users")
+}
+
+model Agency {
+  id                String   @id @default(cuid())
+  name              String
+  type              AgencyType
+  address           String?
+  city              String?
+  state             String?
+  zipCode           String?
+  phone             String?
+  email             String
+  website           String?
+  
+  // Billing information
+  billingAddress    String?
+  billingCity       String?
+  billingState      String?
+  billingZipCode    String?
+  taxId             String?
+  
+  // Subscription
+  subscriptionPlan  String   @default("basic")
+  subscriptionStatus String  @default("active")
+  billingCycle      String   @default("monthly")
+  
+  // HIPAA compliance
+  baaSignedAt       DateTime?
+  baaVersion        String?
+  hipaaOfficer      String?
+  hipaaOfficerEmail String?
+  
+  // Metadata
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  deletedAt         DateTime?
+  
+  // Relationships
+  users             User[]
+  patients          Patient[]
+  documents         Document[]
+  auditLogs         AuditLog[]
+  
+  @@map("agencies")
+}
+
+// Patient/Client Management
+model Patient {
+  id                String   @id @default(cuid())
+  
+  // Encrypted personal information
+  encryptedFirstName String
+  encryptedLastName  String
+  encryptedEmail     String?
+  encryptedPhone     String?
+  encryptedAddress   String?
+  encryptedCity      String?
+  encryptedState     String?
+  encryptedZipCode   String?
+  
+  // Non-encrypted identifiers
+  patientId         String   @unique // User-friendly ID
+  dateOfBirth       DateTime?
+  gender            String?
+  
+  // Medical information (encrypted)
+  encryptedMedicalRecordNumber String?
+  encryptedInsuranceInfo       String?
+  encryptedEmergencyContact    String?
+  
+  // Status and metadata
+  status            PatientStatus @default(ACTIVE)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  deletedAt         DateTime?
+  
+  // HIPAA tracking
+  consentGivenAt    DateTime?
+  consentVersion    String?
+  lastAccessedAt    DateTime?
+  
+  // Relationships
+  agency            Agency   @relation(fields: [agencyId], references: [id])
+  agencyId          String
+  createdBy         User     @relation("CreatedBy", fields: [createdById], references: [id])
+  createdById       String
+  
+  assignments       PatientAssignment[]
+  documents         Document[]
+  progressNotes     ProgressNote[]
+  auditLogs         AuditLog[]
+  
+  @@map("patients")
+}
+
+model PatientAssignment {
+  id          String   @id @default(cuid())
+  patient     Patient  @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  patientId   String
+  provider    User     @relation(fields: [providerId], references: [id])
+  providerId  String
+  role        String   @default("primary") // primary, secondary, consultant
+  assignedAt  DateTime @default(now())
+  unassignedAt DateTime?
+  
+  @@unique([patientId, providerId])
+  @@map("patient_assignments")
+}
+
+// Document Management
+model Document {
+  id                String   @id @default(cuid())
+  title             String
+  type              DocumentType
+  category          String?
+  
+  // Content (encrypted)
+  encryptedContent  String
+  contentHash       String   // SHA-256 hash for integrity verification
+  
+  // Metadata
+  version           Int      @default(1)
+  status            DocumentStatus @default(DRAFT)
+  templateId        String?
+  tags              String[]
+  
+  // File information
+  originalFilename  String?
+  mimeType          String?
+  fileSize          Int?
+  
+  // Timestamps
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  publishedAt       DateTime?
+  archivedAt        DateTime?
+  deletedAt         DateTime?
+  
+  // Retention policy
+  retentionPolicy   String   @default("7_years")
+  scheduleDeleteAt  DateTime?
+  
+  // Relationships
+  patient           Patient? @relation(fields: [patientId], references: [id])
+  patientId         String?
+  agency            Agency   @relation(fields: [agencyId], references: [id])
+  agencyId          String
+  createdBy         User     @relation(fields: [createdById], references: [id])
+  createdById       String
+  
+  versions          DocumentVersion[]
+  signatures        DocumentSignature[]
+  auditLogs         AuditLog[]
+  
+  @@map("documents")
+}
+
+model DocumentVersion {
+  id                String   @id @default(cuid())
+  document          Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  documentId        String
+  version           Int
+  encryptedContent  String
+  contentHash       String
+  changeDescription String?
+  createdAt         DateTime @default(now())
+  createdBy         String
+  
+  @@unique([documentId, version])
+  @@map("document_versions")
+}
+
+model DocumentSignature {
+  id            String   @id @default(cuid())
+  document      Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  documentId    String
+  signerName    String
+  signerEmail   String
+  signerRole    String
+  signatureHash String   // Cryptographic signature
+  signedAt      DateTime @default(now())
+  ipAddress     String?
+  userAgent     String?
+  
+  @@map("document_signatures")
+}
+
+// Progress Notes
+model ProgressNote {
+  id                    String   @id @default(cuid())
+  
+  // Basic information
+  sessionDate           DateTime
+  sessionDuration       Int?     // minutes
+  sessionType           String   // individual, group, family, assessment
+  noteTemplate          String   @default("soap") // soap, dar, birp
+  
+  // Encrypted content
+  encryptedSubjective   String?
+  encryptedObjective    String?
+  encryptedAssessment   String?
+  encryptedPlan         String?
+  encryptedNotes        String?
+  
+  // Clinical data
+  diagnoses             String[] // ICD-10 codes
+  interventions         String[] // CPT codes
+  goals                 String[]
+  
+  // Voice processing metadata
+  audioFileId           String?
+  transcriptionAccuracy Float?
+  processingTime        Int?     // milliseconds
+  
+  // Status and workflow
+  status                NoteStatus @default(DRAFT)
+  reviewRequired        Boolean  @default(false)
+  reviewedAt            DateTime?
+  reviewedBy            String?
+  
+  // Billing
+  billable              Boolean  @default(true)
+  billed                Boolean  @default(false)
+  billedAt              DateTime?
+  cptCodes              String[]
+  units                 Int      @default(1)
+  
+  // Metadata
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  deletedAt             DateTime?
+  
+  // Relationships
+  patient               Patient  @relation(fields: [patientId], references: [id])
+  patientId             String
+  provider              User     @relation(fields: [providerId], references: [id])
+  providerId            String
+  
+  auditLogs             AuditLog[]
+  
+  @@map("progress_notes")
+}
+
+// Session Management
+model Session {
+  id              String   @id @default(cuid())
+  sessionToken    String   @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId          String
+  expires         DateTime
+  ipAddress       String?
+  userAgent       String?
+  createdAt       DateTime @default(now())
+  lastAccessedAt  DateTime @default(now())
+  
+  @@map("sessions")
+}
+
+// Audit Logging for HIPAA Compliance
+model AuditLog {
+  id            String   @id @default(cuid())
+  
+  // What happened
+  action        String   // CREATE, READ, UPDATE, DELETE, LOGIN, LOGOUT, EXPORT, etc.
+  resource      String   // USER, PATIENT, DOCUMENT, etc.
+  resourceId    String?
+  
+  // Who did it
+  user          User?    @relation(fields: [userId], references: [id])
+  userId        String?
+  userEmail     String?  // Backup in case user is deleted
+  
+  // When and where
+  timestamp     DateTime @default(now())
+  ipAddress     String?
+  userAgent     String?
+  
+  // Additional context
+  details       Json?    // Additional structured data
+  oldValues     Json?    // Previous state for updates
+  newValues     Json?    // New state for updates
+  
+  // Risk assessment
+  riskLevel     RiskLevel @default(LOW)
+  flagged       Boolean  @default(false)
+  
+  // Relationships
+  patient       Patient? @relation(fields: [patientId], references: [id])
+  patientId     String?
+  agency        Agency?  @relation(fields: [agencyId], references: [id])
+  agencyId      String?
+  document      Document? @relation(fields: [documentId], references: [id])
+  documentId    String?
+  progressNote  ProgressNote? @relation(fields: [progressNoteId], references: [id])
+  progressNoteId String?
+  
+  @@index([timestamp])
+  @@index([userId])
+  @@index([action])
+  @@index([resourceId])
+  @@map("audit_logs")
+}
+
+// System Configuration
+model SystemConfig {
+  id            String   @id @default(cuid())
+  key           String   @unique
+  value         String
+  description   String?
+  category      String   @default("general")
+  encrypted     Boolean  @default(false)
+  updatedAt     DateTime @updatedAt
+  updatedBy     String?
+  
+  @@map("system_config")
+}
+
+// Data Retention Policies
+model RetentionPolicy {
+  id                String   @id @default(cuid())
+  name              String   @unique
+  description       String?
+  resourceType      String   // DOCUMENT, PATIENT, AUDIT_LOG, etc.
+  retentionPeriod   Int      // days
+  autoDelete        Boolean  @default(false)
+  archiveFirst      Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@map("retention_policies")
+}
+
+// Enums
+enum UserRole {
+  SUPER_ADMIN
+  AGENCY_ADMIN
+  PROVIDER
+  SUPPORT_STAFF
+  CLIENT
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  PENDING_VERIFICATION
+}
+
+enum AgencyType {
+  HEALTHCARE_PROVIDER
+  THERAPY_CLINIC
+  SCHOOL_DISTRICT
+  NONPROFIT
+  GOVERNMENT
+  INDIVIDUAL_PRACTICE
+}
+
+enum PatientStatus {
+  ACTIVE
+  INACTIVE
+  DISCHARGED
+  ARCHIVED
+}
+
+enum DocumentType {
+  PROGRESS_NOTE
+  ASSESSMENT
+  TREATMENT_PLAN
+  CONSENT_FORM
+  INSURANCE_FORM
+  CORRESPONDENCE
+  REPORT
+  OTHER
+}
+
+enum DocumentStatus {
+  DRAFT
+  IN_REVIEW
+  APPROVED
+  PUBLISHED
+  ARCHIVED
+}
+
+enum NoteStatus {
+  DRAFT
+  IN_PROGRESS
+  COMPLETED
+  REVIEWED
+  SIGNED
+  BILLED
+}
+
+enum RiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
