@@ -1,6 +1,5 @@
 {
   "version": 2,
-  "name": "docuhero-platform",
   "builds": [
     {
       "src": "src/backend/server.js",
@@ -22,23 +21,8 @@
       }
     }
   ],
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "/src/backend/server.js"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/index.html"
-    }
-  ],
   "env": {
     "NODE_ENV": "production"
-  },
-  "functions": {
-    "src/backend/server.js": {
-      "maxDuration": 30
-    }
   },
   "headers": [
     {
@@ -63,6 +47,14 @@
     {
       "source": "/health",
       "destination": "/api/health"
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": "/src/backend/server.js"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
   ]
 }
